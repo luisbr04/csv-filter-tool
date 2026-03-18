@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV Filter Tool</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d0f14; --surface: #161920; --surface2: #1e2230;
+    --border: #2a2f3d; --accent: #00e5a0; --accent2: #0099ff;
+    --warn: #ff6b35; --text: #e8eaf0; --muted: #6b7280;
+    --mono: 'IBM Plex Mono', monospace; --sans: 'IBM Plex Sans', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .logo { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: 2px; }
+  .file-info { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+  .file-info span { color: var(--accent); }
+
+  .filter-panel { background: var(--surface2); border-bottom: 1px solid var(--border); padding: 10px 16px; flex-shrink: 0; display: none; }
+  .filter-panel.visible { display: block; }
+  .filter-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .filter-row { display: flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; animation: slideIn 0.15s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+
+  .connector-badge { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 1px; padding: 2px 8px; border-radius: 3px; cursor: pointer; border: none; min-width: 38px; text-align: center; transition: all 0.15s; }
+  .connector-badge.and { background: rgba(0,153,255,0.15); color: var(--accent2); border: 1px solid rgba(0,153,255,0.3); }
+  .connector-badge.and:hover { background: rgba(0,153,255,0.3); }
+  .connector-badge.or  { background: rgba(255,107,53,0.15); color: var(--warn); border: 1px solid rgba(255,107,53,0.3); }
+  .connector-badge.or:hover  { background: rgba(255,107,53,0.3); }
+  .row-num { font-family: var(--mono); font-size: 10px; color: var(--muted); min-width: 18px; text-align: center; }
+
+  select, input[type="text"], input[type="number"] {
+    background: #0a0c10; border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 12px; padding: 5px 8px;
+    border-radius: 4px; outline: none; transition: border-color 0.2s;
+  }
+  select:focus, input:focus { border-color: var(--accent2); }
+  select { cursor: pointer; }
+  .col-select { min-width: 130px; } .type-select { min-width: 120px; }
+  .val-input { min-width: 150px; flex: 1; max-width: 220px; }
+  .val-input-sm { width: 80px; }
+  .range-wrap { display: flex; align-items: center; gap: 4px; }
+  .range-sep { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+  .btn-remove { background: transparent; border: 1px solid transparent; color: var(--muted); font-size: 14px; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: auto; transition: all 0.15s; flex-shrink: 0; }
+  .btn-remove:hover { border-color: var(--warn); color: var(--warn); background: rgba(255,107,53,0.08); }
+
+  .action-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 6px 14px; border-radius: 4px; border: none; font-family: var(--mono); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; letter-spacing: 0.5px; white-space: nowrap; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-add { background: transparent; border: 1px dashed var(--accent); color: var(--accent); }
+  .btn-add:hover { background: rgba(0,229,160,0.08); }
+  .btn-apply { background: var(--accent); color: #000; }
+  .btn-apply:hover:not(:disabled) { background: #00ffb0; }
+  .btn-clear { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .btn-clear:hover { border-color: var(--warn); color: var(--warn); }
+  .btn-download { background: var(--accent2); color: #fff; margin-left: auto; }
+  .btn-download:hover:not(:disabled) { background: #33b0ff; }
+  .result-badge { font-family: var(--mono); font-size: 11px; color: var(--accent); background: rgba(0,229,160,0.08); border: 1px solid rgba(0,229,160,0.2); border-radius: 4px; padding: 4px 10px; }
+
+  .drop-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 2px dashed var(--border); margin: 30px; border-radius: 12px; cursor: pointer; transition: all 0.2s; position: relative; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(0,229,160,0.03); }
+  .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .drop-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+  .drop-title { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+  .drop-sub { font-size: 13px; color: var(--muted); }
+  .drop-badges { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; justify-content: center; }
+  .drop-badge { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 5px 14px; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+
+  .progress-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  .progress-title { font-family: var(--mono); font-size: 13px; color: var(--text); font-weight: 600; }
+  .progress-bar-wrap { width: 380px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .progress-bar { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.1s; width: 0%; }
+  .progress-pct { font-family: var(--mono); font-size: 32px; font-weight: 600; color: var(--accent); }
+  .progress-stats { display: flex; gap: 24px; }
+  .progress-stat { font-family: var(--mono); font-size: 11px; color: var(--muted); text-align: center; }
+  .progress-stat span { display: block; font-size: 15px; font-weight: 600; color: var(--text); }
+
+  .table-wrap { flex: 1; overflow: auto; position: relative; }
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  thead { position: sticky; top: 0; z-index: 20; }
+  th { background: var(--surface2); border-bottom: 2px solid var(--accent); border-right: 1px solid var(--border); padding: 0; text-align: left; font-weight: 600; font-size: 11px; color: var(--accent); white-space: nowrap; position: relative; user-select: none; }
+  .th-inner { display: flex; align-items: center; gap: 4px; padding: 8px 10px; }
+  .th-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+  .col-filter-btn { flex-shrink: 0; width: 18px; height: 18px; border-radius: 3px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; padding: 0; }
+  .col-filter-btn:hover { color: var(--accent); background: rgba(0,229,160,0.1); }
+  .col-filter-btn.active { color: var(--accent); background: rgba(0,229,160,0.15); }
+  th.col-filtered { background: rgba(0,229,160,0.06); }
+  th.col-filtered .th-label { color: #fff; }
+  td { border-bottom: 1px solid var(--border); border-right: 1px solid #1a1e27; padding: 6px 12px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: #c8cad4; }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+  tr:hover td { background: rgba(0,229,160,0.04); color: var(--text); }
+
+  /* ── COLUMN FILTER DROPDOWN ── */
+  .cfd {
+    position: fixed; z-index: 1000;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    width: 260px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.7);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .cfd.open { display: flex; }
+  .cfd-header { padding: 9px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .cfd-title { font-family: var(--mono); font-size: 11px; color: var(--accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+  .cfd-count { font-family: var(--mono); font-size: 10px; color: var(--muted); flex-shrink: 0; }
+
+  /* HIGH CARDINALITY mode */
+  .cfd-hc-msg { padding: 10px 12px; background: rgba(255,107,53,0.07); border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 10px; color: var(--warn); line-height: 1.5; }
+  .cfd-hc-msg strong { color: #ffaa88; }
+
+  .cfd-search-wrap { padding: 8px; border-bottom: 1px solid var(--border); }
+  .cfd-search { width: 100%; font-size: 11px; }
+
+  .cfd-actions { display: flex; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .cfd-action-btn { flex: 1; padding: 4px 0; border-radius: 3px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 10px; cursor: pointer; transition: all 0.15s; text-align: center; }
+  .cfd-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* VIRTUAL SCROLL LIST */
+  .cfd-list-outer {
+    height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+  }
+  .cfd-list-inner {
+    position: relative;
+    /* height set by JS */
+  }
+  .cfd-item {
+    position: absolute;
+    left: 0; right: 0;
+    height: 28px;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    cursor: pointer;
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    transition: background 0.08s;
+  }
+  .cfd-item:hover { background: rgba(0,229,160,0.06); }
+  .cfd-item input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; width: 13px; height: 13px; flex-shrink: 0; }
+  .cfd-item-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cfd-item-count { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+
+  /* HC text filter mode */
+  .cfd-hc-filter { padding: 8px; display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid var(--border); }
+  .cfd-hc-filter label { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .cfd-hc-filter select { font-size: 11px; }
+  .cfd-hc-filter input { font-size: 11px; }
+
+  .cfd-footer { padding: 8px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+  .cfd-apply { flex: 1; padding: 6px 0; background: var(--accent); color: #000; border: none; border-radius: 4px; font-family: var(--mono); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .cfd-apply:hover { background: #00ffb0; }
+  .cfd-cancel { padding: 6px 10px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; font-family: var(--mono); font-size: 11px; cursor: pointer; }
+  .cfd-cancel:hover { border-color: var(--warn); color: var(--warn); }
+
+  .status-bar { background: var(--surface); border-top: 1px solid var(--border); padding: 5px 20px; display: flex; gap: 20px; align-items: center; flex-shrink: 0; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .status-bar .stat { display: flex; gap: 6px; }
+  .status-bar .stat span { color: var(--accent); font-weight: 600; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <div class="logo">▸ CSV FILTER</div>
+    <div id="headerFileInfo" class="file-info hidden">
+      <span id="hFileName">—</span> &nbsp;·&nbsp; <span id="hRows">—</span> rows &nbsp;·&nbsp;
+      <span id="hCols">—</span> cols &nbsp;·&nbsp; <span id="hSize">—</span>
+    </div>
+  </div>
+
+  <div class="filter-panel" id="filterPanel">
+    <div class="filter-rows" id="filterRows"></div>
+    <div class="action-bar">
+      <button class="btn btn-add" onclick="addFilterRow()">＋ Add filter</button>
+      <button class="btn btn-apply" id="btnApply" onclick="applyAllFilters()" disabled>▶ Apply</button>
+      <button class="btn btn-clear" onclick="clearAllFilters()">✕ Clear all</button>
+      <span id="resultBadge" class="result-badge hidden"></span>
+      <button class="btn btn-download" id="btnDownload" onclick="downloadCSV()" disabled>⬇ Download CSV</button>
+    </div>
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept=".csv,.tsv,.txt" onchange="loadFile(event)">
+    <div class="drop-icon">📂</div>
+    <div class="drop-title">Drop your CSV here</div>
+    <div class="drop-sub">or click to select a file</div>
+    <div class="drop-badges">
+      <span class="drop-badge">✓ Streaming — no full file loaded into memory</span>
+      <span class="drop-badge">✓ Supports files 900MB+</span>
+    </div>
+  </div>
+
+  <div class="progress-wrap hidden" id="progressWrap">
+    <div class="progress-title">Reading file...</div>
+    <div class="progress-pct" id="progressPct">0%</div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <div class="progress-stats">
+      <div class="progress-stat"><span id="pRows">0</span>rows read</div>
+      <div class="progress-stat"><span id="pMB">0</span>MB processed</div>
+      <div class="progress-stat"><span id="pSpeed">—</span>MB/s</div>
+    </div>
+  </div>
+
+  <div class="table-wrap hidden" id="tableWrap">
+    <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+  </div>
+
+  <!-- COLUMN FILTER DROPDOWN -->
+  <div class="cfd" id="cfd">
+    <div class="cfd-header">
+      <span class="cfd-title" id="cfdTitle">Column</span>
+      <span class="cfd-count" id="cfdCount"></span>
+    </div>
+    <!-- High-cardinality warning (shown when unique values > HC_THRESHOLD) -->
+    <div class="cfd-hc-msg hidden" id="cfdHcMsg">
+      <strong>⚠ High cardinality column</strong><br>
+      Too many unique values to display as a list.<br>
+      Use the text filter below.
+    </div>
+    <!-- Normal mode: search + virtual list -->
+    <div id="cfdNormalMode">
+      <div class="cfd-search-wrap">
+        <input type="text" class="cfd-search" id="cfdSearch" placeholder="Search values..." oninput="cfdOnSearch()">
+      </div>
+      <div class="cfd-actions">
+        <button class="cfd-action-btn" onclick="cfdSelectAll()">Select all</button>
+        <button class="cfd-action-btn" onclick="cfdClearAll()">Clear all</button>
+      </div>
+      <div class="cfd-list-outer" id="cfdListOuter" onscroll="cfdOnScroll()">
+        <div class="cfd-list-inner" id="cfdListInner"></div>
+      </div>
+    </div>
+    <!-- High-cardinality mode: text filter -->
+    <div class="cfd-hc-filter hidden" id="cfdHcMode">
+      <label>Filter type</label>
+      <select id="cfdHcType">
+        <option value="contains">contains</option>
+        <option value="notcontains">does not contain</option>
+        <option value="exact">exact match</option>
+        <option value="startswith">starts with</option>
+        <option value="endswith">ends with</option>
+      </select>
+      <input type="text" id="cfdHcValue" placeholder="value..." style="font-size:11px">
+    </div>
+    <div class="cfd-footer">
+      <button class="cfd-apply" onclick="cfdApply()">✓ Apply</button>
+      <button class="cfd-cancel" onclick="cfdClose()">Cancel</button>
+    </div>
+  </div>
+
+  <div class="status-bar hidden" id="statusBar">
+    <div class="stat">Total: <span id="statTotal">0</span></div>
+    <div class="stat">Showing: <span id="statShowing">0</span></div>
+    <div class="stat">Cols: <span id="statCols">0</span></div>
+    <div class="stat" style="margin-left:auto;font-size:10px;color:var(--muted)">Preview: 500 rows · download = all</div>
+  </div>
+</div>
+
+<script>
+  // ── Constants ────────────────────────────────────────────────
+  const PAGE          = 500;
+  const CHUNK         = 4 * 1024 * 1024; // 4 MB
+  const HC_THRESHOLD  = 5000;   // cols with more unique values → HC mode
+  const ITEM_H        = 28;     // px height of each virtual list item
+  const VISIBLE_EXTRA = 4;      // extra items above/below viewport
+
+  // ── App State ────────────────────────────────────────────────
+  let allRows = [], filteredRows = [], headers = [];
+  let currentFileName = '', currentFileSize = 0;
+  let colFilters = {};  // colIdx → { mode:'list'|'text', values:Set } | { mode:'text', type, value }
+  let fid = 0;
+
+  // ── CFD (Column Filter Dropdown) state ───────────────────────
+  let cfdColIdx    = -1;
+  let cfdAllVals   = [];   // [{value, count}] full sorted list
+  let cfdFiltered  = [];   // subset after search
+  let cfdSelected  = new Set();
+  let cfdIsHC      = false;
+
+  // ── Drop & Load ──────────────────────────────────────────────
+  const dz = document.getElementById('dropZone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) { currentFileName = f.name; currentFileSize = f.size; streamCSV(f); }
+  });
+  function loadFile(e) {
+    const f = e.target.files[0]; if (!f) return;
+    currentFileName = f.name; currentFileSize = f.size; streamCSV(f);
+  }
+
+  // ── Streaming CSV Parser ─────────────────────────────────────
+  function streamCSV(file) {
+    dz.classList.add('hidden');
+    document.getElementById('progressWrap').classList.remove('hidden');
+    allRows = []; headers = [];
+    let leftover = '', offset = 0, headerParsed = false;
+    const t0 = performance.now();
+
+    function readChunk() {
+      const r = new FileReader();
+      r.onload = e => {
+        const lines = (leftover + e.target.result).split('\n');
+        leftover = lines.pop();
+        for (const l of lines) {
+          const t = l.trim(); if (!t) continue;
+          if (!headerParsed) { headers = parseCSVLine(t); headerParsed = true; }
+          else allRows.push(parseCSVLine(t));
+        }
+        offset += CHUNK;
+        const pct = Math.min(100, Math.round(offset / file.size * 100));
+        const mb  = (offset / 1048576).toFixed(1);
+        const sec = (performance.now() - t0) / 1000;
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressPct').textContent = pct + '%';
+        document.getElementById('pRows').textContent = allRows.length.toLocaleString();
+        document.getElementById('pMB').textContent   = mb;
+        document.getElementById('pSpeed').textContent = sec > 0 ? (offset / 1048576 / sec).toFixed(1) : '—';
+        if (offset < file.size) setTimeout(readChunk, 0);
+        else {
+          if (leftover.trim()) { if (!headerParsed) headers = parseCSVLine(leftover.trim()); else allRows.push(parseCSVLine(leftover.trim())); }
+          finishLoading();
+        }
+      };
+      r.onerror = () => alert('Error reading the file.');
+      r.readAsText(file.slice(offset, offset + CHUNK), 'UTF-8');
+    }
+    readChunk();
+  }
+
+  function finishLoading() {
+    colFilters = {}; filteredRows = [...allRows];
+    const sz = (currentFileSize / 1048576).toFixed(1);
+    document.getElementById('hFileName').textContent = currentFileName;
+    document.getElementById('hRows').textContent = allRows.length.toLocaleString();
+    document.getElementById('hCols').textContent = headers.length;
+    document.getElementById('hSize').textContent = sz + ' MB';
+    document.getElementById('headerFileInfo').classList.remove('hidden');
+    document.getElementById('progressWrap').classList.add('hidden');
+    document.getElementById('filterPanel').classList.add('visible');
+    document.getElementById('tableWrap').classList.remove('hidden');
+    document.getElementById('statusBar').classList.remove('hidden');
+    document.getElementById('btnDownload').disabled = false;
+    document.getElementById('btnApply').disabled   = false;
+    if (!document.getElementById('filterRows').children.length) addFilterRow();
+    renderTable(filteredRows);
+  }
+
+  function parseCSVLine(line) {
+    const r = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (c === ',' && !inQ) { r.push(cur.trim()); cur = ''; }
+      else cur += c;
+    }
+    r.push(cur.trim()); return r;
+  }
+
+  // ── Table ────────────────────────────────────────────────────
+  function renderTable(rows) {
+    buildHeader();
+    const body = document.getElementById('tableBody');
+    body.innerHTML = '';
+    rows.slice(0, PAGE).forEach(row => {
+      const tr = document.createElement('tr');
+      headers.forEach((_, i) => {
+        const td = document.createElement('td');
+        const v = row[i] !== undefined ? row[i] : '';
+        td.textContent = v; td.title = v; tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    document.getElementById('statTotal').textContent   = allRows.length.toLocaleString();
+    document.getElementById('statShowing').textContent = rows.length.toLocaleString();
+    document.getElementById('statCols').textContent    = headers.length;
+  }
+
+  function buildHeader() {
+    const head = document.getElementById('tableHead');
+    head.innerHTML = '';
+    const tr = document.createElement('tr');
+    headers.forEach((h, i) => {
+      const th = document.createElement('th');
+      if (colFilters[i]) th.classList.add('col-filtered');
+      th.innerHTML = `<div class="th-inner">
+        <span class="th-label" title="${h||''}">${h || 'Col '+(i+1)}</span>
+        <button class="col-filter-btn ${colFilters[i] ? 'active' : ''}"
+          onclick="openCfd(event,${i})" title="Filter column">▾</button>
+      </div>`;
+      tr.appendChild(th);
+    });
+    head.appendChild(tr);
+  }
+
+  // ── Column Filter Dropdown (CFD) ─────────────────────────────
+
+  // Returns allRows filtered by every active filter EXCEPT the given column.
+  // Used to populate the dropdown with contextually relevant values.
+  function getRowsExcludingCol(excludeColIdx) {
+    let result = allRows;
+
+    // Apply column filters for every column except the one being opened
+    for (const [colIdxStr, cf] of Object.entries(colFilters)) {
+      const ci = parseInt(colIdxStr);
+      if (ci === excludeColIdx) continue;
+      if (cf.mode === 'list') {
+        result = result.filter(row => cf.values.has(row[ci] !== undefined ? String(row[ci]) : ''));
+      } else {
+        const val = cf.value.toLowerCase();
+        result = result.filter(row => {
+          const raw  = row[ci] !== undefined ? String(row[ci]) : '';
+          const cell = raw.toLowerCase();
+          switch (cf.type) {
+            case 'contains':    return cell.includes(val);
+            case 'notcontains': return !cell.includes(val);
+            case 'exact':       return raw === cf.value;
+            case 'startswith':  return cell.startsWith(val);
+            case 'endswith':    return cell.endsWith(val);
+            default: return true;
+          }
+        });
+      }
+    }
+
+    // Also apply panel filters
+    const rows = document.getElementById('filterRows').children;
+    if (rows.length) {
+      const filters = Array.from(rows).map(row => {
+        const m = row.id.match(/frow-(\d+)/); if (!m) return null;
+        const id   = m[1];
+        const col  = parseInt(document.getElementById('fcol-' + id).value);
+        const type = document.getElementById('ftype-' + id).value;
+        const connBtn = document.getElementById('fconn-' + id);
+        const connector = connBtn ? connBtn.textContent.trim() : 'AND';
+        let val = '', min = NaN, max = NaN;
+        if (type === 'range') {
+          min = parseFloat((document.getElementById('fmin-' + id)||{}).value);
+          max = parseFloat((document.getElementById('fmax-' + id)||{}).value);
+        } else if (!['notempty','empty','nodup'].includes(type)) {
+          val = (document.getElementById('fvaltext-' + id)||{}).value || '';
+        }
+        return { col, type, val, min, max, connector };
+      }).filter(Boolean);
+
+      const regular = filters.filter(f => f.type !== 'nodup');
+      if (regular.length) {
+        result = result.filter(row => {
+          let pass = matchFilter(row, regular[0]);
+          for (let i = 1; i < regular.length; i++) {
+            const m = matchFilter(row, regular[i]);
+            pass = regular[i].connector === 'OR' ? (pass || m) : (pass && m);
+          }
+          return pass;
+        });
+      }
+    }
+
+    return result;
+  }
+
+  function openCfd(e, colIdx) {
+    e.stopPropagation();
+    const cfd = document.getElementById('cfd');
+    if (cfd.classList.contains('open') && cfdColIdx === colIdx) { cfdClose(); return; }
+
+    cfdColIdx = colIdx;
+
+    // Compute counts from rows passing ALL OTHER active filters (not this column).
+    // This makes the dropdown contextual — exactly like Excel dependent filtering.
+    const baseRows = getRowsExcludingCol(colIdx);
+
+    const countMap = new Map();
+    for (const row of baseRows) {
+      const v = row[colIdx] !== undefined ? String(row[colIdx]) : '';
+      countMap.set(v, (countMap.get(v) || 0) + 1);
+    }
+
+    cfdIsHC = countMap.size > HC_THRESHOLD;
+
+    if (!cfdIsHC) {
+      cfdAllVals = Array.from(countMap.entries())
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => a.value.localeCompare(b.value, undefined, { numeric: true }));
+    } else {
+      cfdAllVals = [];
+    }
+
+    // Restore or initialise selection for this column
+    const existing = colFilters[colIdx];
+    if (existing && existing.mode === 'list') {
+      // Keep only values that still appear after other filters
+      const available = new Set(cfdAllVals.map(x => x.value));
+      cfdSelected = new Set([...existing.values].filter(v => available.has(v)));
+    } else if (!cfdIsHC) {
+      cfdSelected = new Set(cfdAllVals.map(x => x.value));
+    } else {
+      cfdSelected = new Set();
+    }
+
+    // Update header
+    document.getElementById('cfdTitle').textContent = headers[colIdx] || 'Col '+(colIdx+1);
+    document.getElementById('cfdCount').textContent = cfdIsHC
+      ? `${countMap.size.toLocaleString()} unique values`
+      : `${countMap.size.toLocaleString()} unique`;
+
+    // Show/hide modes
+    const hcMsg    = document.getElementById('cfdHcMsg');
+    const normalEl = document.getElementById('cfdNormalMode');
+    const hcEl     = document.getElementById('cfdHcMode');
+
+    if (cfdIsHC) {
+      hcMsg.classList.remove('hidden');
+      normalEl.classList.add('hidden');
+      hcEl.classList.remove('hidden');
+      // Restore previous HC filter if any
+      if (existing && existing.mode === 'text') {
+        document.getElementById('cfdHcType').value  = existing.type;
+        document.getElementById('cfdHcValue').value = existing.value;
+      } else {
+        document.getElementById('cfdHcType').value  = 'contains';
+        document.getElementById('cfdHcValue').value = '';
+      }
+    } else {
+      hcMsg.classList.add('hidden');
+      normalEl.classList.remove('hidden');
+      hcEl.classList.add('hidden');
+      document.getElementById('cfdSearch').value = '';
+      cfdFiltered = [...cfdAllVals];
+      cfdRenderVirtual();
+    }
+
+    // Position & open
+    const btn  = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    let top  = rect.bottom + 4;
+    let left = rect.left;
+    if (left + 268 > window.innerWidth)  left = window.innerWidth - 272;
+    if (top  + 380 > window.innerHeight) top  = rect.top - 382;
+    cfd.style.top  = top  + 'px';
+    cfd.style.left = left + 'px';
+    cfd.classList.add('open');
+  }
+
+  // ── Virtual Scroll Renderer ───────────────────────────────────
+  function cfdRenderVirtual() {
+    const outer = document.getElementById('cfdListOuter');
+    const inner = document.getElementById('cfdListInner');
+    // Always wipe stale DOM — critical when switching columns
+    inner.innerHTML = '';
+    outer.scrollTop = 0;
+    inner.style.height = (cfdFiltered.length * ITEM_H) + 'px';
+    cfdPaintVisible(outer, inner);
+  }
+
+  function cfdOnScroll() {
+    const outer = document.getElementById('cfdListOuter');
+    const inner = document.getElementById('cfdListInner');
+    cfdPaintVisible(outer, inner);
+  }
+
+  function cfdPaintVisible(outer, inner) {
+    const scrollTop = outer.scrollTop;
+    const viewH     = outer.clientHeight;
+    const startIdx  = Math.max(0, Math.floor(scrollTop / ITEM_H) - VISIBLE_EXTRA);
+    const endIdx    = Math.min(cfdFiltered.length, Math.ceil((scrollTop + viewH) / ITEM_H) + VISIBLE_EXTRA);
+
+    // Remove items scrolled out of view
+    Array.from(inner.children).forEach(el => {
+      const idx = parseInt(el.dataset.idx);
+      if (idx < startIdx || idx >= endIdx) el.remove();
+    });
+
+    // Paint missing items using createElement (never innerHTML) so
+    // special chars in values (/, &, ", <, etc.) are never misinterpreted
+    const rendered = new Set(Array.from(inner.children).map(el => parseInt(el.dataset.idx)));
+    for (let i = startIdx; i < endIdx; i++) {
+      if (rendered.has(i)) continue;
+      const { value, count } = cfdFiltered[i];
+
+      const div = document.createElement('div');
+      div.className   = 'cfd-item';
+      div.dataset.idx = i;
+      div.style.top   = (i * ITEM_H) + 'px';
+
+      const cb = document.createElement('input');
+      cb.type    = 'checkbox';
+      cb.checked = cfdSelected.has(value);
+      // Store exact value reference via closure — no serialisation/escaping needed
+      cb.addEventListener('change', () => {
+        if (cb.checked) cfdSelected.add(value);
+        else            cfdSelected.delete(value);
+        updateCfdCount();
+      });
+
+      const labelSpan = document.createElement('span');
+      labelSpan.className   = 'cfd-item-label';
+      labelSpan.title       = value;
+      labelSpan.textContent = value === '' ? '(empty)' : value;
+
+      const countSpan = document.createElement('span');
+      countSpan.className   = 'cfd-item-count';
+      countSpan.textContent = count.toLocaleString();
+
+      div.appendChild(cb);
+      div.appendChild(labelSpan);
+      div.appendChild(countSpan);
+      inner.appendChild(div);
+    }
+  }
+
+  function updateCfdCount() {
+    if (!cfdIsHC) {
+      document.getElementById('cfdCount').textContent =
+        `${cfdSelected.size}/${cfdAllVals.length} unique`;
+    }
+  }
+
+  function cfdOnSearch() {
+    const q = document.getElementById('cfdSearch').value.toLowerCase();
+    cfdFiltered = q ? cfdAllVals.filter(x => x.value.toLowerCase().includes(q)) : [...cfdAllVals];
+    // Clear virtual DOM and re-render from top
+    const outer = document.getElementById('cfdListOuter');
+    const inner = document.getElementById('cfdListInner');
+    outer.scrollTop = 0;
+    inner.innerHTML = '';
+    cfdRenderVirtual();
+  }
+
+  function cfdSelectAll() {
+    cfdFiltered.forEach(x => cfdSelected.add(x.value));
+    const inner = document.getElementById('cfdListInner');
+    inner.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    updateCfdCount();
+  }
+
+  function cfdClearAll() {
+    cfdFiltered.forEach(x => cfdSelected.delete(x.value));
+    const inner = document.getElementById('cfdListInner');
+    inner.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    updateCfdCount();
+  }
+
+  function cfdApply() {
+    if (cfdIsHC) {
+      const type  = document.getElementById('cfdHcType').value;
+      const value = document.getElementById('cfdHcValue').value.trim();
+      if (value === '') { delete colFilters[cfdColIdx]; }
+      else { colFilters[cfdColIdx] = { mode: 'text', type, value }; }
+    } else {
+      // All selected = no filter
+      if (cfdSelected.size === cfdAllVals.length) {
+        delete colFilters[cfdColIdx];
+      } else {
+        colFilters[cfdColIdx] = { mode: 'list', values: new Set(cfdSelected) };
+      }
+    }
+    cfdClose();
+    applyAllFilters();
+  }
+
+  function cfdClose() {
+    document.getElementById('cfd').classList.remove('open');
+    cfdColIdx = -1;
+  }
+
+  document.addEventListener('click', e => {
+    const cfd = document.getElementById('cfd');
+    if (cfd.classList.contains('open') && !cfd.contains(e.target)) cfdClose();
+  });
+
+  // ── Multi-level Filter Panel ─────────────────────────────────
+  function colOptions() {
+    return headers.map((h,i) => `<option value="${i}">${h || 'Col '+(i+1)}</option>`).join('');
+  }
+
+  function addFilterRow() {
+    const id = ++fid;
+    const container = document.getElementById('filterRows');
+    const isFirst   = container.children.length === 0;
+    const div = document.createElement('div');
+    div.className = 'filter-row'; div.id = 'frow-' + id;
+    div.innerHTML = `
+      ${isFirst
+        ? `<span class="row-num">#${document.getElementById('filterRows').children.length+1}</span>`
+        : `<button class="connector-badge and" id="fconn-${id}" onclick="toggleConnector(this)">AND</button>`}
+      <select class="col-select" id="fcol-${id}">${colOptions()}</select>
+      <select class="type-select" id="ftype-${id}" onchange="onTypeChange(${id})">
+        <option value="contains">contains</option>
+        <option value="notcontains">does not contain</option>
+        <option value="exact">exact match</option>
+        <option value="startswith">starts with</option>
+        <option value="endswith">ends with</option>
+        <option value="range">numeric range</option>
+        <option value="notempty">is not empty</option>
+        <option value="empty">is empty</option>
+        <option value="nodup">remove duplicates</option>
+      </select>
+      <div id="fval-${id}">
+        <input type="text" class="val-input" id="fvaltext-${id}" placeholder="value...">
+      </div>
+      ${!isFirst ? `<button class="btn-remove" onclick="removeFilterRow(${id})">✕</button>` : ''}`;
+    container.appendChild(div);
+  }
+
+  function onTypeChange(id) {
+    const type = document.getElementById('ftype-' + id).value;
+    const wrap = document.getElementById('fval-' + id);
+    if (type === 'range') {
+      wrap.innerHTML = `<div class="range-wrap"><input type="number" class="val-input-sm" id="fmin-${id}" placeholder="min"><span class="range-sep">→</span><input type="number" class="val-input-sm" id="fmax-${id}" placeholder="max"></div>`;
+    } else if (['notempty','empty','nodup'].includes(type)) {
+      wrap.innerHTML = '';
+    } else {
+      wrap.innerHTML = `<input type="text" class="val-input" id="fvaltext-${id}" placeholder="value...">`;
+    }
+  }
+
+  function toggleConnector(btn) {
+    btn.classList.contains('and')
+      ? (btn.classList.replace('and','or'), btn.textContent = 'OR')
+      : (btn.classList.replace('or','and'), btn.textContent = 'AND');
+  }
+
+  function removeFilterRow(id) {
+    const el = document.getElementById('frow-' + id); if (el) el.remove();
+  }
+
+  // ── Apply All Filters ────────────────────────────────────────
+  function applyAllFilters() {
+    let result = allRows;
+
+    // 1. Column header filters
+    for (const [colIdxStr, cf] of Object.entries(colFilters)) {
+      const ci = parseInt(colIdxStr);
+      if (cf.mode === 'list') {
+        result = result.filter(row => cf.values.has(row[ci] !== undefined ? String(row[ci]) : ''));
+      } else {
+        // text mode (HC columns)
+        const val  = cf.value.toLowerCase();
+        result = result.filter(row => {
+          const raw  = row[ci] !== undefined ? String(row[ci]) : '';
+          const cell = raw.toLowerCase();
+          switch (cf.type) {
+            case 'contains':    return cell.includes(val);
+            case 'notcontains': return !cell.includes(val);
+            case 'exact':       return raw === cf.value;
+            case 'startswith':  return cell.startsWith(val);
+            case 'endswith':    return cell.endsWith(val);
+            default: return true;
+          }
+        });
+      }
+    }
+
+    // 2. Panel filters
+    const rows = document.getElementById('filterRows').children;
+    if (rows.length) {
+      const filters = Array.from(rows).map(row => {
+        const m = row.id.match(/frow-(\d+)/); if (!m) return null;
+        const id   = m[1];
+        const col  = parseInt(document.getElementById('fcol-' + id).value);
+        const type = document.getElementById('ftype-' + id).value;
+        const connBtn = document.getElementById('fconn-' + id);
+        const connector = connBtn ? connBtn.textContent.trim() : 'AND';
+        let val = '', min = NaN, max = NaN;
+        if (type === 'range') {
+          min = parseFloat((document.getElementById('fmin-' + id)||{}).value);
+          max = parseFloat((document.getElementById('fmax-' + id)||{}).value);
+        } else if (!['notempty','empty','nodup'].includes(type)) {
+          val = (document.getElementById('fvaltext-' + id)||{}).value || '';
+        }
+        return { col, type, val, min, max, connector };
+      }).filter(Boolean);
+
+      const regular = filters.filter(f => f.type !== 'nodup');
+      const dedup   = filters.filter(f => f.type === 'nodup');
+
+      if (regular.length) {
+        result = result.filter(row => {
+          let pass = matchFilter(row, regular[0]);
+          for (let i = 1; i < regular.length; i++) {
+            const m = matchFilter(row, regular[i]);
+            pass = regular[i].connector === 'OR' ? (pass || m) : (pass && m);
+          }
+          return pass;
+        });
+      }
+      dedup.forEach(f => {
+        const seen = new Set();
+        result = result.filter(row => {
+          const v = (row[f.col] !== undefined ? String(row[f.col]) : '').trim();
+          if (seen.has(v)) return false; seen.add(v); return true;
+        });
+      });
+    }
+
+    filteredRows = result;
+    renderTable(filteredRows);
+
+    const anyFilter = Object.keys(colFilters).length > 0 || document.getElementById('filterRows').children.length > 0;
+    const badge = document.getElementById('resultBadge');
+    badge.textContent = filteredRows.length.toLocaleString() + ' rows';
+    badge.classList.toggle('hidden', !anyFilter);
+  }
+
+  function matchFilter(row, f) {
+    const raw  = row[f.col] !== undefined ? String(row[f.col]) : '';
+    const cell = raw.toLowerCase();
+    const val  = (f.val || '').toLowerCase();
+    switch (f.type) {
+      case 'contains':    return cell.includes(val);
+      case 'notcontains': return !cell.includes(val);
+      case 'exact':       return raw === f.val;
+      case 'startswith':  return cell.startsWith(val);
+      case 'endswith':    return cell.endsWith(val);
+      case 'notempty':    return raw.trim() !== '';
+      case 'empty':       return raw.trim() === '';
+      case 'range': {
+        const n = parseFloat(raw); if (isNaN(n)) return false;
+        if (!isNaN(f.min) && n < f.min) return false;
+        if (!isNaN(f.max) && n > f.max) return false;
+        return true;
+      }
+      default: return true;
+    }
+  }
+
+  function clearAllFilters() {
+    document.getElementById('filterRows').innerHTML = '';
+    fid = 0; colFilters = {}; filteredRows = [...allRows];
+    document.getElementById('resultBadge').classList.add('hidden');
+    addFilterRow(); renderTable(filteredRows);
+  }
+
+  // ── Download ─────────────────────────────────────────────────
+  function downloadCSV() {
+    const btn = document.getElementById('btnDownload');
+    btn.disabled = true; btn.textContent = '⏳ Generating...';
+    setTimeout(() => {
+      let csv = headers.map(h => `"${(h||'').replace(/"/g,'""')}"`).join(',') + '\n';
+      for (let i = 0; i < filteredRows.length; i += 10000) {
+        csv += filteredRows.slice(i, i + 10000).map(row =>
+          headers.map((_, j) => {
+            const v = row[j] !== undefined ? String(row[j]) : '';
+            return v.includes(',') || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g,'""')}"` : v;
+          }).join(',')
+        ).join('\n') + '\n';
+      }
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+      const a   = document.createElement('a');
+      a.href = url; a.download = currentFileName.replace(/\.(csv|tsv|txt)$/i,'') + '_filtered.csv';
+      a.click(); URL.revokeObjectURL(url);
+      btn.disabled = false; btn.textContent = '⬇ Download CSV';
+    }, 50);
+  }
+</script>
+</body>
+</html>
